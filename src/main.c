@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -180,17 +181,48 @@ int main(int argc, char **argv) {
 	// 	return EXIT_FAILURE;
 	// }
 
+	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        printf("SDL_Init Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_Window* window = SDL_CreateWindow("Pixel-8", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, 0);
+    if (window == NULL) {
+        printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (renderer == NULL) {
+        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
 	cpu_t cpu = cpu_new();
 	
-	int error = load_rom("IBMLOGO.c8", &cpu);
+	int error = load_rom("../IBMLOGO.c8", &cpu);
 	if (error == EXIT_FAILURE) {
 		printf("Failed to load file");
 	}
 
 	while (true) {
+		SDL_Event e;
+		if (SDL_WaitEvent(&e)) {
+			if (e.type == SDL_QUIT) {
+				break;
+			}
+		}
 		uint16_t opcode = cpu_fetch(&cpu);
 		cpu_decode(&cpu, opcode);
+
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+		SDL_RenderClear(renderer);
+		SDL_RenderPresent(renderer);
 	}
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 
 	return EXIT_SUCCESS;
 }
