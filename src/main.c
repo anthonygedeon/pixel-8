@@ -1,3 +1,6 @@
+#include <SDL_render.h>
+#include <SDL_surface.h>
+#include <SDL_video.h>
 #include <errno.h>
 #include <SDL.h>
 #include <stdint.h>
@@ -5,10 +8,13 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#define WINDOW_WIDTH 640
+#define WINDOW_HEIGHT 480
+
 #define ARRAY_LENGTH(x) (sizeof(x) / sizeof(x[0]))
 
 #define MEMORY_MAX 4096
-#define VARIABLE_MAX 0xF
+#define VARIABLE_MAX 16
 
 #define DISPLAY_SIZE 64 * 32
 
@@ -19,8 +25,7 @@ typedef struct {
 } memory_t;
 
 memory_t memory_new() {
-	memory_t m = { .ram = { 0 } };
-	return m;
+	return (memory_t){ .ram = { 0 } };
 }
 
 void memory_write(memory_t *memory, size_t size, const uint8_t *data) {
@@ -36,12 +41,11 @@ void memory_write(memory_t *memory, size_t size, const uint8_t *data) {
 }
 
 typedef struct {
-	uint8_t fb[DISPLAY_SIZE];
+	uint8_t fb[64][32];
 } display_t;
 
 display_t display_new() {
-	display_t d = { .fb = { 0 }};
-	return d;
+	return (display_t){ .fb = { 0 }};
 }
 
 typedef struct {
@@ -59,7 +63,7 @@ typedef struct {
 } reg_t;
 
 reg_t register_new() {
-	reg_t r = {
+	return (reg_t){
 		.pc = (uint16_t)0x200,
 		.sp = 0,
 		.i  = 0,
@@ -68,7 +72,6 @@ reg_t register_new() {
 		.v = { 0 },
 		.stack = { 0 },
 	};
-	return r;
 }
 
 typedef struct {
@@ -78,17 +81,15 @@ typedef struct {
 } cpu_t;
 
 cpu_t cpu_new() {
-	cpu_t c = { 
+	return (cpu_t){ 
 		.reg     = register_new(),
 		.memory  = memory_new(),
 		.display = display_new(),
 	};
-	return c;
 }
 
 uint16_t cpu_fetch(cpu_t *cpu) {
-	uint16_t instruction = (cpu->memory.ram[cpu->reg.pc] << 8) | (cpu->memory.ram[cpu->reg.pc + 1]);
-	return instruction;
+	return (cpu->memory.ram[cpu->reg.pc] << 8) | (cpu->memory.ram[cpu->reg.pc + 1]);
 }
 
 void cpu_decode(cpu_t *cpu, uint16_t opcode) {
@@ -96,15 +97,16 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 	
 	uint16_t addr = opcode & 0x0FFF;
 	uint8_t nibble = opcode & 0x000F;
-	uint8_t x = (opcode >> 8) & 0x0F;
-	uint8_t y = (opcode >> 4) & 0x00F;
-	uint8_t byte = opcode & 0x00FF;
+	uint8_t x = (opcode >> 8) & 0x000F;
+	uint8_t y = (opcode >> 4) & 0x000F;
+	uint8_t byte = opcode & 0x0FFF;
 
 	switch (opcode & 0xF000) {
 		case 0x0000:
 			switch(opcode & 0x00FF) {
 				case 0xE0:
 					printf("CLS\n");
+					memset(cpu->display.fb, 0, DISPLAY_SIZE); 
 					cpu->reg.pc += 2;
 					break;
 				default:
@@ -131,8 +133,32 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			cpu->reg.pc += 2;
 			break;
 		case 0xD000:
-			printf("draw\n");
+			printf("DRW\n");
+			uint8_t sprite_x = cpu->reg.v[x] % 64;
+			uint8_t sprite_y = cpu->reg.v[y] % 32;
+
+			cpu->reg.v[0xF]	= 0;
+
+			for (int height = 0; height < nibble; height++) {
+				uint8_t sprite_row = cpu->memory.ram[cpu->reg.i + height];
+				
+				for (int width = 0; width <= 7; width++) {
+					uint8_t pixel = (((byte<<width) & 0x80) >> 7);
+						
+					cpu->display.fb[height + sprite_y][width + sprite_x] ^= pixel;
+					if (cpu->display.fb[sprite_y][sprite_x] == 1) {
+						cpu->reg.v[0xF]	= 1;
+					} else { 
+						cpu->reg.v[0xF]	= 0;
+					}
+
+					x++;
+				}
+				y++;
+			}
+
 			cpu->reg.pc += 2;
+
 			break;
 		default:
 			printf("not reachable\n");
@@ -181,22 +207,25 @@ int main(int argc, char **argv) {
 	// 	return EXIT_FAILURE;
 	// }
 
-	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+	if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
         printf("SDL_Init Error: %s\n", SDL_GetError());
         return 1;
     }
 
-    SDL_Window* window = SDL_CreateWindow("Pixel-8", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, 0);
+    SDL_Window* window = SDL_CreateWindow("Pixel-8", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
     if (window == NULL) {
         printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
         return 1;
     }
+
 
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (renderer == NULL) {
         printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
         return 1;
     }
+
+	// SDL_RenderSetLogicalSize(renderer, WINDOW_WIDTH / 64, WINDOW_HEIGHT / 32);
 
 	cpu_t cpu = cpu_new();
 	
@@ -205,18 +234,37 @@ int main(int argc, char **argv) {
 		printf("Failed to load file");
 	}
 
+	SDL_Event e;
+	
 	while (true) {
-		SDL_Event e;
 		if (SDL_WaitEvent(&e)) {
 			if (e.type == SDL_QUIT) {
 				break;
 			}
 		}
+
 		uint16_t opcode = cpu_fetch(&cpu);
+
 		cpu_decode(&cpu, opcode);
 
-		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
 		SDL_RenderClear(renderer);
+		
+		for (int i = 0; i < 64; i++) {
+			for (int j = 0; j < 32; j++) {
+				SDL_Rect rect = { .x = j , .y = i, .h = 10, .w = 10 };
+
+				if (cpu.display.fb[i][j] == 1) {
+					SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+					SDL_RenderFillRect(renderer, &rect);
+				} else if (cpu.display.fb[i][j] == 0) {
+					SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+					SDL_RenderFillRect(renderer, &rect);
+				}
+			}
+		}
+
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+
 		SDL_RenderPresent(renderer);
 	}
 
