@@ -41,7 +41,7 @@ void memory_write(memory_t *memory, size_t size, const uint8_t *data) {
 }
 
 typedef struct {
-	uint8_t fb[64][32];
+	uint8_t fb[32][64];
 } display_t;
 
 display_t display_new() {
@@ -93,7 +93,7 @@ uint16_t cpu_fetch(cpu_t *cpu) {
 }
 
 void cpu_decode(cpu_t *cpu, uint16_t opcode) {
-	printf("[PC: 0x%.4d OP: 0x%.4X] ", cpu->reg.pc, opcode);
+	printf("%.4X %.2X %-6.2X", cpu->reg.pc, opcode >> 8, opcode & 0x00FF);
 	
 	uint16_t addr = opcode & 0x0FFF;
 	uint8_t nibble = opcode & 0x000F;
@@ -106,7 +106,7 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			switch(opcode & 0x00FF) {
 				case 0xE0:
 					printf("CLS\n");
-					memset(cpu->display.fb, 0, DISPLAY_SIZE); 
+					memset(cpu->display.fb, 0, sizeof(cpu->display.fb[0][0]) * DISPLAY_SIZE);
 					cpu->reg.pc += 2;
 					break;
 				default:
@@ -114,7 +114,7 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			}
 			break;
 		case 0x1000:
-			printf("jP 0x%.3X\n", addr);
+			printf("JP 0x%.3X\n", addr);
 			cpu->reg.pc = addr;
 			break;
 		case 0x6000:
@@ -133,28 +133,26 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			cpu->reg.pc += 2;
 			break;
 		case 0xD000:
-			printf("DRW\n");
+			printf("DRW V[0x%X], V[0x%X], 0x%X\n", x, y, nibble);
 			uint8_t sprite_x = cpu->reg.v[x] % 64;
 			uint8_t sprite_y = cpu->reg.v[y] % 32;
-
-			cpu->reg.v[0xF]	= 0;
 
 			for (int height = 0; height < nibble; height++) {
 				uint8_t sprite_row = cpu->memory.ram[cpu->reg.i + height];
 				
 				for (int width = 0; width <= 7; width++) {
-					uint8_t pixel = (((byte<<width) & 0x80) >> 7);
+					uint8_t pixel = (((sprite_row<<width) & 0x80) >> 7);
 						
 					cpu->display.fb[height + sprite_y][width + sprite_x] ^= pixel;
 					if (cpu->display.fb[sprite_y][sprite_x] == 1) {
-						cpu->reg.v[0xF]	= 1;
+						cpu->reg.v[0xF]	= 0x1;
 					} else { 
-						cpu->reg.v[0xF]	= 0;
+						cpu->reg.v[0xF]	= 0x0;
 					}
 
-					x++;
+					// x++;
 				}
-				y++;
+				// y++;
 			}
 
 			cpu->reg.pc += 2;
@@ -225,7 +223,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-	// SDL_RenderSetLogicalSize(renderer, WINDOW_WIDTH / 64, WINDOW_HEIGHT / 32);
+	SDL_RenderSetLogicalSize(renderer, WINDOW_WIDTH / 64, WINDOW_HEIGHT / 32);
 
 	cpu_t cpu = cpu_new();
 	
@@ -249,9 +247,9 @@ int main(int argc, char **argv) {
 
 		SDL_RenderClear(renderer);
 		
-		for (int i = 0; i < 64; i++) {
-			for (int j = 0; j < 32; j++) {
-				SDL_Rect rect = { .x = j , .y = i, .h = 10, .w = 10 };
+		for (int i = 0; i < 32; i++) {
+			for (int j = 0; j < 64; j++) {
+				SDL_Rect rect = { .x = j , .y = i, .h = 10, .w = 10};
 
 				if (cpu.display.fb[i][j] == 1) {
 					SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
