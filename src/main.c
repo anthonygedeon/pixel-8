@@ -223,7 +223,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-	SDL_RenderSetLogicalSize(renderer, WINDOW_WIDTH / 64, WINDOW_HEIGHT / 32);
+	SDL_RenderSetScale(renderer, WINDOW_WIDTH / 64, WINDOW_HEIGHT / 32);
 
 	cpu_t cpu = cpu_new();
 	
