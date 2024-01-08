@@ -11,8 +11,12 @@
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
 
+#define FB_ROWS 32
+#define FB_COLS 64
+
 #define ARRAY_LENGTH(x) (sizeof(x) / sizeof(x[0]))
 
+#define MAX_STACK_SIZE 100
 #define MEMORY_MAX 4096
 #define VARIABLE_MAX 16
 
@@ -38,10 +42,12 @@ void memory_write(memory_t *memory, size_t size, const uint8_t *data) {
 		memory->ram[offset] = data[i];
 		offset++;
 	}
+
+	memory->ram[0x1FF] = 1;
 }
 
 typedef struct {
-	uint8_t fb[32][64];
+	uint8_t fb[FB_ROWS][FB_COLS];
 } display_t;
 
 display_t display_new() {
@@ -59,7 +65,7 @@ typedef struct {
 
 	uint8_t v[VARIABLE_MAX];
 
-	addr_t stack[100];
+	uint16_t stack[MAX_STACK_SIZE];
 } reg_t;
 
 reg_t register_new() {
@@ -109,23 +115,140 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 					memset(cpu->display.fb, 0, sizeof(cpu->display.fb[0][0]) * DISPLAY_SIZE);
 					cpu->reg.pc += 2;
 					break;
+				case 0xEE:
+					printf("RET\n");
+					cpu->reg.pc = cpu->reg.stack[--cpu->reg.sp];
+					cpu->reg.pc += 2;
+					break;
 				default:
-					printf("not reachable\n");
+					printf("UNKP\n");
+					break;
 			}
 			break;
 		case 0x1000:
 			printf("JP 0x%.3X\n", addr);
 			cpu->reg.pc = addr;
 			break;
+		case 0x2000:
+			printf("CALL 0x%.3X\n", addr);
+			cpu->reg.stack[cpu->reg.sp++] = cpu->reg.pc;
+			cpu->reg.pc = addr;
+			break;
+		case 0x3000:
+			printf("SE V[0x%X], %X\n", x, byte);
+			if (cpu->reg.v[x] == byte) {
+				cpu->reg.pc += 4;
+			} else {
+				cpu->reg.pc += 2;
+			}
+			break;
+		case 0x4000:
+			printf("SNE V[0x%X], %X\n", x, byte);
+			if (cpu->reg.v[x] != byte) {
+				cpu->reg.pc += 4;
+			} else {
+				cpu->reg.pc += 2;
+			}
+			break;
+		case 0x5000:
+			printf("SE V[0x%X], V[0x%X]\n", x, y);
+			if (cpu->reg.v[x] == cpu->reg.v[y]) {
+				cpu->reg.pc += 4;
+			} else {
+				cpu->reg.pc += 2;
+			}
+			break;
 		case 0x6000:
-			printf("LD V[%d], 0x%.3X\n", x, byte);
+			printf("LD V[%X], 0x%.3X\n", x, byte);
 			cpu->reg.v[x] = byte;
 			cpu->reg.pc += 2;
 			break;
 		case 0x7000:
-			printf("ADD V[%d], 0x%.3X\n", x, byte);
+			printf("ADD V[%X], 0x%.3X\n", x, byte);
 			cpu->reg.v[x] += byte;
 			cpu->reg.pc += 2;
+			break;
+		case 0x8000:
+			switch(opcode & 0x000F) {
+				case 0x0:
+					printf("LD V[%X], V[%X]\n", x, y);
+					cpu->reg.v[x] = cpu->reg.v[y];
+					cpu->reg.pc += 2;
+					break;
+				case 0x1:
+					printf("OR V[%X], V[%X]\n", x, y);
+					cpu->reg.v[x] |= cpu->reg.v[y];
+					cpu->reg.pc += 2;
+					break;
+				case 0x2:
+					printf("AND V[%X], V[%X]\n", x, y);
+					cpu->reg.v[x] &= cpu->reg.v[y];
+					cpu->reg.pc += 2;
+					break;
+				case 0x3:
+					printf("XOR V[%X], V[%X]\n", x, y);
+					cpu->reg.v[x] ^= cpu->reg.v[y];
+					cpu->reg.pc += 2;
+					break;
+				case 0x4:
+					printf("ADD V[%X], V[%X]\n", x, y);
+					if (cpu->reg.v[x] > 0 && 
+						cpu->reg.v[y] < UINT8_MAX - cpu->reg.v[x]) {
+						cpu->reg.v[0xF] = 1;
+					} else {
+						cpu->reg.v[0xF] = 0;
+
+					}
+					cpu->reg.v[x] += cpu->reg.v[y];
+					cpu->reg.pc += 2;
+					break;
+				case 0x5:
+					printf("SUB V[%X], V[%X]\n", x, y);
+					if (cpu->reg.v[x] < 0 && 
+						cpu->reg.v[y] > UINT8_MAX + cpu->reg.v[x]) {
+						cpu->reg.v[0xF] = 1;
+					} else {
+						cpu->reg.v[0xF] = 0;
+
+					}
+					cpu->reg.v[x] -= cpu->reg.v[y];
+					cpu->reg.pc += 2;
+					break;
+				case 0x6:
+					printf("SHR V[%X], { V[%X]\n }", x, y);
+					cpu->reg.v[x] = cpu->reg.v[y];
+					cpu->reg.v[0xF] = (cpu->reg.v[x] & 0x01);
+					cpu->reg.v[x] >>= 0x1;
+					cpu->reg.pc += 2;
+					break;
+				case 0x7:
+					printf("SUB V[%X], V[%X]\n", y, x);
+					if (cpu->reg.v[x] < 0 && 
+						cpu->reg.v[y] > UINT8_MAX + cpu->reg.v[x]) {
+						cpu->reg.v[0xF] = 1;
+					} else {
+						cpu->reg.v[0xF] = 0;
+
+					}
+					cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];
+					cpu->reg.pc += 2;
+					break;
+				case 0xE:
+					printf("SHL V[%X], { V[%X] }\n", x, y);
+					cpu->reg.v[x] = cpu->reg.v[y];
+					cpu->reg.v[0xF] = (cpu->reg.v[x] & 0x80);
+					cpu->reg.v[x] <<= 0x1;
+					cpu->reg.pc += 2;
+					break;
+			}
+			break;
+		case 0x9000:
+			printf("SNE V[%X], V[%X]\n", x, y);
+			if (cpu->reg.v[x] != cpu->reg.v[y]) {
+				cpu->reg.pc += 4;
+			} else {
+				cpu->reg.pc += 2;
+			}
 			break;
 		case 0xA000:
 			printf("LD I, 0x%.3X\n", addr);
@@ -149,17 +272,47 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 					} else { 
 						cpu->reg.v[0xF]	= 0x0;
 					}
-
-					// x++;
 				}
-				// y++;
 			}
 
 			cpu->reg.pc += 2;
 
 			break;
+		case 0xF000:
+			switch(opcode & 0x00FF) {
+				case 0x1E:
+					cpu->reg.i += cpu->reg.v[x];
+					cpu->reg.pc += 2;
+					break;
+				case 0x33:
+					printf("LD B, V[%X]\n", x);
+					cpu->memory.ram[cpu->reg.i] = (cpu->reg.v[x] / 100) % 10;
+					cpu->memory.ram[cpu->reg.i + 1]= (cpu->reg.v[x] / 10) % 10;
+					cpu->memory.ram[cpu->reg.i + 2] = (cpu->reg.v[x] / 1) % 10;
+					cpu->reg.pc += 2;
+					break;
+				case 0x55:
+					printf("LD [%X], V[%X]\n", cpu->reg.i, x);
+					for (int i = 0; i <= x; i++) {
+						cpu->memory.ram[cpu->reg.i + i] = cpu->reg.v[i];
+					}
+					cpu->reg.pc += 2;
+					break;
+				case 0x65:
+					printf("LD [%X], V[%X]\n", cpu->reg.i, x);
+					for (int i = 0; i <= x; i++) {
+						cpu->reg.v[i] = cpu->memory.ram[cpu->reg.i + i];
+					}
+					cpu->reg.pc += 2;
+					break;
+				default:
+					printf("UNKP\n");
+					break;
+			}
+			break;
 		default:
-			printf("not reachable\n");
+			printf("UNKP\n");
+			break;
 	}
 }
 
@@ -223,11 +376,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-	SDL_RenderSetScale(renderer, WINDOW_WIDTH / 64, WINDOW_HEIGHT / 32);
+	SDL_RenderSetScale(renderer, WINDOW_WIDTH / FB_COLS, WINDOW_HEIGHT / FB_ROWS);
 
 	cpu_t cpu = cpu_new();
 	
-	int error = load_rom("../IBMLOGO.c8", &cpu);
+	int error = load_rom("../test-roms/corax.ch8", &cpu);
 	if (error == EXIT_FAILURE) {
 		printf("Failed to load file");
 	}
@@ -247,8 +400,8 @@ int main(int argc, char **argv) {
 
 		SDL_RenderClear(renderer);
 		
-		for (int i = 0; i < 32; i++) {
-			for (int j = 0; j < 64; j++) {
+		for (int i = 0; i < FB_ROWS; i++) {
+			for (int j = 0; j < FB_COLS; j++) {
 				SDL_Rect rect = { .x = j , .y = i, .h = 10, .w = 10};
 
 				if (cpu.display.fb[i][j] == 1) {
