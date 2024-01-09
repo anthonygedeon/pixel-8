@@ -119,8 +119,12 @@ keyboard_t keyboard_new() {
 	return (keyboard_t){ .keypad = 0x0000 };
 }
 
-bool keyboard_isset(keyboard_t keyboard, uint8_t target) {
-	return (keyboard.keypad >> target) & 0x1U;
+bool keyboard_is_keypress() {
+
+}
+
+bool keyboard_isset(keyboard_t keyboard, uint8_t key) {
+	return (keyboard.keypad >> key) & 0x1U;
 }
 
 void keyboard_setkey(keyboard_t *keyboard, uint8_t key) {
@@ -148,7 +152,9 @@ cpu_t cpu_new() {
 }
 
 uint16_t cpu_fetch(cpu_t *cpu) {
-	return (cpu->memory.ram[cpu->reg.pc] << 8) | (cpu->memory.ram[cpu->reg.pc + 1]);
+	uint16_t opcode = (cpu->memory.ram[cpu->reg.pc] << 8) | (cpu->memory.ram[cpu->reg.pc + 1]);
+	cpu->reg.pc += 2;
+	return opcode;
 }
 
 void cpu_decode(cpu_t *cpu, uint16_t opcode) {
@@ -166,12 +172,10 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 				case 0xE0:
 					printf("CLS\n");
 					memset(cpu->display.fb, 0, sizeof(cpu->display.fb[0][0]) * DISPLAY_SIZE);
-					cpu->reg.pc += 2;
 					break;
 				case 0xEE:
 					printf("RET\n");
 					cpu->reg.pc = cpu->reg.stack[--cpu->reg.sp];
-					cpu->reg.pc += 2;
 					break;
 				default:
 					printf("UNKP\n");
@@ -190,58 +194,46 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 		case 0x3000:
 			printf("SE V[0x%X], %X\n", x, byte);
 			if (cpu->reg.v[x] == byte) {
-				cpu->reg.pc += 4;
-			} else {
 				cpu->reg.pc += 2;
 			}
 			break;
 		case 0x4000:
 			printf("SNE V[0x%X], %X\n", x, byte);
 			if (cpu->reg.v[x] != byte) {
-				cpu->reg.pc += 4;
-			} else {
 				cpu->reg.pc += 2;
-			}
+			} 			
 			break;
 		case 0x5000:
 			printf("SE V[0x%X], V[0x%X]\n", x, y);
 			if (cpu->reg.v[x] == cpu->reg.v[y]) {
-				cpu->reg.pc += 4;
-			} else {
 				cpu->reg.pc += 2;
-			}
+			} 			
 			break;
 		case 0x6000:
 			printf("LD V[%X], 0x%.3X\n", x, byte);
 			cpu->reg.v[x] = byte;
-			cpu->reg.pc += 2;
 			break;
 		case 0x7000:
 			printf("ADD V[%X], 0x%.3X\n", x, byte);
 			cpu->reg.v[x] += byte;
-			cpu->reg.pc += 2;
 			break;
 		case 0x8000:
 			switch(opcode & 0x000F) {
 				case 0x0:
 					printf("LD V[%X], V[%X]\n", x, y);
 					cpu->reg.v[x] = cpu->reg.v[y];
-					cpu->reg.pc += 2;
 					break;
 				case 0x1:
 					printf("OR V[%X], V[%X]\n", x, y);
 					cpu->reg.v[x] |= cpu->reg.v[y];
-					cpu->reg.pc += 2;
 					break;
 				case 0x2:
 					printf("AND V[%X], V[%X]\n", x, y);
 					cpu->reg.v[x] &= cpu->reg.v[y];
-					cpu->reg.pc += 2;
 					break;
 				case 0x3:
 					printf("XOR V[%X], V[%X]\n", x, y);
 					cpu->reg.v[x] ^= cpu->reg.v[y];
-					cpu->reg.pc += 2;
 					break;
 				case 0x4:
 					printf("ADD V[%X], V[%X]\n", x, y);
@@ -253,7 +245,6 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 
 					}
 					cpu->reg.v[x] += cpu->reg.v[y];
-					cpu->reg.pc += 2;
 					break;
 				case 0x5:
 					printf("SUB V[%X], V[%X]\n", x, y);
@@ -265,14 +256,12 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 
 					}
 					cpu->reg.v[x] -= cpu->reg.v[y];
-					cpu->reg.pc += 2;
 					break;
 				case 0x6:
 					printf("SHR V[%X], { V[%X]\n }", x, y);
 					cpu->reg.v[x] = cpu->reg.v[y];
 					cpu->reg.v[0xF] = (cpu->reg.v[x] & 0x01);
 					cpu->reg.v[x] >>= 0x1;
-					cpu->reg.pc += 2;
 					break;
 				case 0x7:
 					printf("SUB V[%X], V[%X]\n", y, x);
@@ -284,37 +273,30 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 
 					}
 					cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];
-					cpu->reg.pc += 2;
 					break;
 				case 0xE:
 					printf("SHL V[%X], { V[%X] }\n", x, y);
 					cpu->reg.v[x] = cpu->reg.v[y];
 					cpu->reg.v[0xF] = (cpu->reg.v[x] & 0x80);
 					cpu->reg.v[x] <<= 0x1;
-					cpu->reg.pc += 2;
 					break;
 			}
 			break;
 		case 0x9000:
 			printf("SNE V[%X], V[%X]\n", x, y);
 			if (cpu->reg.v[x] != cpu->reg.v[y]) {
-				cpu->reg.pc += 4;
-			} else {
 				cpu->reg.pc += 2;
-			}
+			} 			
 			break;
 		case 0xA000:
 			printf("LD I, 0x%.3X\n", addr);
 			cpu->reg.i = addr;
-			cpu->reg.pc += 2;
 			break;
 		case 0xB000:
 			cpu->reg.pc = addr + cpu->reg.v[0];
-			cpu->reg.pc += 2;
 			break;
 		case 0xC000:
 			cpu->reg.v[x] = (rand() % 0xFF) & byte;
-			cpu->reg.pc += 2;
 			break;
 		case 0xD000:
 			printf("DRW V[0x%X], V[0x%X], 0x%X\n", x, y, nibble);
@@ -336,7 +318,6 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 				}
 			}
 
-			cpu->reg.pc += 2;
 			break;
 
 		case 0xE000:
@@ -344,19 +325,17 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 				case 0x9E:
 					printf("SKP V[%X]\n", x);
 					if (keyboard_isset(cpu->keyboard, cpu->reg.v[x])) {
-						cpu->reg.pc += 4;
-					} else {
 						cpu->reg.pc += 2;
-					}
+					} 					
 					break;
 				case 0xA1:
 					printf("SKNP V[%X]\n", x);
 					if (!keyboard_isset(cpu->keyboard, cpu->reg.v[x])) {
-						cpu->reg.pc += 4;
-					} else {
 						cpu->reg.pc += 2;
-					}
+					} 
 					break;
+				default:
+					printf("UNKP\n");
 			}
 			break;
 		case 0xF000:
@@ -364,54 +343,57 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 				case 0x07:
 					printf("LD V[%x], DT = %X\n", x, cpu->reg.delay_timer);
 					cpu->reg.v[x] = cpu->reg.delay_timer;
-					cpu->reg.pc += 2;
 					break;
 				case 0x15:
 					printf("LD DT, V[%x]\n", x);
 					cpu->reg.delay_timer = cpu->reg.v[x];
-					cpu->reg.pc += 2;
 					break;
 				case 0x18:
 					printf("LD ST, V[%x]\n", x);
 					cpu->reg.sound_timer = cpu->reg.v[x];
-					cpu->reg.pc += 2;
 					break;
 				case 0x0A:
-					printf("LD V[%X], K\n", x );
+					printf("LD V[%X], K\n", x);
 
-					cpu->reg.pc += 2;
+					bool key_down = false;
+					for (uint8_t i = 0; i <= 0xF; i++) {
+						if (keyboard_isset(cpu->keyboard, i)) {
+							key_down = true;
+						} else if (key_down) {
+							cpu->reg.v[x] = i;
+							cpu->reg.pc += 2;
+							key_down = false;
+						}
+					}
+
+					cpu->reg.pc -= 2;
 					break;
 
 				case 0x29:
 					printf("LD F, V[%X]\n", x);
 					cpu->reg.i = cpu->reg.v[x];
-					cpu->reg.pc += 2;
 					break;
 				case 0x1E:
 					printf("ADD I, V[%X]\n", x);
 					cpu->reg.i += cpu->reg.v[x];
-					cpu->reg.pc += 2;
 					break;
 				case 0x33:
 					printf("LD B, V[%X]\n", x);
 					cpu->memory.ram[cpu->reg.i] = (cpu->reg.v[x] / 100) % 10;
 					cpu->memory.ram[cpu->reg.i + 1]= (cpu->reg.v[x] / 10) % 10;
 					cpu->memory.ram[cpu->reg.i + 2] = (cpu->reg.v[x] / 1) % 10;
-					cpu->reg.pc += 2;
 					break;
 				case 0x55:
 					printf("LD [%X], V[%X]\n", cpu->reg.i, x);
 					for (int i = 0; i <= x; i++) {
 						cpu->memory.ram[cpu->reg.i + i] = cpu->reg.v[i];
 					}
-					cpu->reg.pc += 2;
 					break;
 				case 0x65:
 					printf("LD [%X], V[%X]\n", cpu->reg.i, x);
 					for (int i = 0; i <= x; i++) {
 						cpu->reg.v[i] = cpu->memory.ram[cpu->reg.i + i];
 					}
-					cpu->reg.pc += 2;
 					break;
 				default:
 					printf("UNKP\n");
@@ -476,7 +458,7 @@ uint8_t keyboard_to_hex(SDL_Event type) {
 		case SDLK_v: 
 			return 0xF;
 		default:
-			return UINT8_MAX;
+			return -1;
 	}
 }
 
