@@ -160,14 +160,6 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 	uint8_t y = (opcode >> 4) & 0x000F;
 	uint8_t byte = opcode & 0x00FF;
 	
-	if (cpu->reg.delay_timer > 0) {
-		cpu->reg.delay_timer--;
-	}
-
-	if (cpu->reg.sound_timer > 0) {
-		cpu->reg.delay_timer--;
-	}
-
 	switch (opcode & 0xF000) {
 		case 0x0000:
 			switch(opcode & 0x00FF) {
@@ -321,7 +313,8 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			cpu->reg.pc += 2;
 			break;
 		case 0xC000:
-			cpu->reg.v[x] = rand() & byte;
+			cpu->reg.v[x] = (rand() % 0xFF) & byte;
+			cpu->reg.pc += 2;
 			break;
 		case 0xD000:
 			printf("DRW V[0x%X], V[0x%X], 0x%X\n", x, y, nibble);
@@ -350,7 +343,7 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			switch (opcode & 0x00FF) {
 				case 0x9E:
 					printf("SKP V[%X]\n", x);
-					if (cpu->keyboard.keypad[cpu->reg.v[x]] == KEY_DOWN) {
+					if (keyboard_isset(cpu->keyboard, cpu->reg.v[x])) {
 						cpu->reg.pc += 4;
 					} else {
 						cpu->reg.pc += 2;
@@ -358,7 +351,7 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 					break;
 				case 0xA1:
 					printf("SKNP V[%X]\n", x);
-					if (cpu->keyboard.keypad[cpu->reg.v[x]] == KEY_UP) {
+					if (!keyboard_isset(cpu->keyboard, cpu->reg.v[x])) {
 						cpu->reg.pc += 4;
 					} else {
 						cpu->reg.pc += 2;
@@ -384,15 +377,9 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 					cpu->reg.pc += 2;
 					break;
 				case 0x0A:
-					printf("LD V[%X], K = %X\n", x, cpu->keyboard.key);
-					
-					for (int i = 0; i < 16; i++) {
-						if (cpu->keyboard.keypad[i] == KEY_DOWN) {
-							cpu->reg.v[x] = i;
-						} 					
-					}
+					printf("LD V[%X], K\n", x );
 
-					cpu->reg.pc -= 2;
+					cpu->reg.pc += 2;
 					break;
 
 				case 0x29:
@@ -436,6 +423,15 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			break;
 		
 	}
+
+	if (cpu->reg.delay_timer > 0) {
+		cpu->reg.delay_timer--;
+	}
+
+	if (cpu->reg.sound_timer > 0) {
+		cpu->reg.sound_timer--;
+	}
+
 }
 
 long fsize(FILE *file) {
@@ -443,6 +439,45 @@ long fsize(FILE *file) {
 	long size = ftell(file);
 	fseek(file, 0, SEEK_SET);
 	return size;
+}
+
+uint8_t keyboard_to_hex(SDL_Event type) {
+	switch (type.key.keysym.sym) {
+		case SDLK_1:
+			return 0x1;
+		case SDLK_2: 
+			return 0x2;
+		case SDLK_3:
+			return 0x3;
+		case SDLK_4: 
+			return 0xC;
+		case SDLK_q: 
+			return 0x4;
+		case SDLK_w: 
+			return 0x5;
+		case SDLK_e:
+			return 0x6;
+		case SDLK_r: 
+			return 0xD;
+		case SDLK_a:
+			return 0x7;
+		case SDLK_s: 
+			return 0x8;
+		case SDLK_d:
+			return 0x9;
+		case SDLK_f: 
+			return 0xE;
+		case SDLK_z:
+			return 0xA;
+		case SDLK_x: 
+			return 0x0;
+		case SDLK_c:
+			return 0xB;
+		case SDLK_v: 
+			return 0xF;
+		default:
+			return UINT8_MAX;
+	}
 }
 
 int load_rom(const char *rom, cpu_t *cpu) {
@@ -515,147 +550,16 @@ int main(int argc, char **argv) {
 			if (event.type == SDL_QUIT) {
 				is_running = false;
 			}
-			
+
+			uint8_t key = keyboard_to_hex(event);
+
 			if (event.type == SDL_KEYUP) {
-				// cpu.keyboard.keydown = false;
-				switch (event.key.keysym.sym) {
-					case SDLK_1:
-						cpu.keyboard.key = 0x1;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_2: 
-						cpu.keyboard.key = 0x2;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_3:
-						cpu.keyboard.key = 0x3;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_4: 
-						cpu.keyboard.key = 0xC;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_q: 
-						cpu.keyboard.key = 0x4;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_w: 
-						cpu.keyboard.key = 0x5;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_e:
-						cpu.keyboard.key = 0x6;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_r: 
-						cpu.keyboard.key = 0xD;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_a:
-						cpu.keyboard.key = 0x7;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_s: 
-						cpu.keyboard.key = 0x8;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_d:
-						cpu.keyboard.key = 0x9;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_f: 
-						cpu.keyboard.key = 0xE;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_z:
-						cpu.keyboard.key = 0xA;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_x: 
-						cpu.keyboard.key = 0x0;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_c:
-						cpu.keyboard.key = 0xB;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-					case SDLK_v: 
-						cpu.keyboard.key = 0xF;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
-						break;
-				}
+				keyboard_unsetkey(&cpu.keyboard, key);
 			}
 
 			if (event.type == SDL_KEYDOWN) {
-				// cpu.keyboard.keydown = true;
-				switch (event.key.keysym.sym) {
-					case SDLK_1:
-						cpu.keyboard.key = 0x1;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_2: 
-						cpu.keyboard.key = 0x2;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_3:
-						cpu.keyboard.key = 0x3;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_4: 
-						cpu.keyboard.key = 0xC;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_q: 
-						cpu.keyboard.key = 0x4;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_w: 
-						cpu.keyboard.key = 0x5;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_e:
-						cpu.keyboard.key = 0x6;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_r: 
-						cpu.keyboard.key = 0xD;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_a:
-						cpu.keyboard.key = 0x7;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_s: 
-						cpu.keyboard.key = 0x8;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_d:
-						cpu.keyboard.key = 0x9;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_f: 
-						cpu.keyboard.key = 0xE;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_z:
-						cpu.keyboard.key = 0xA;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_x: 
-						cpu.keyboard.key = 0x0;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_c:
-						cpu.keyboard.key = 0xB;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-					case SDLK_v: 
-						cpu.keyboard.key = 0xF;
-						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
-						break;
-				}
+				keyboard_setkey(&cpu.keyboard, key);
 			}
-
 		}
 
 		uint16_t opcode = cpu_fetch(&cpu);
