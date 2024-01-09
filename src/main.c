@@ -1,3 +1,4 @@
+#include <SDL_events.h>
 #include <SDL_render.h>
 #include <SDL_surface.h>
 #include <SDL_video.h>
@@ -111,13 +112,23 @@ reg_t register_new() {
 }
 
 typedef struct {
-	uint8_t key;
-	key_event keypad[16];
-	bool keydown;
+	uint16_t keypad;
 } keyboard_t;
 
 keyboard_t keyboard_new() {
-	return (keyboard_t){ .key = 0x0, .keydown = false };
+	return (keyboard_t){ .keypad = 0x0000 };
+}
+
+bool keyboard_isset(keyboard_t keyboard, uint8_t target) {
+	return (keyboard.keypad >> target) & 0x1U;
+}
+
+void keyboard_setkey(keyboard_t *keyboard, uint8_t key) {
+	keyboard->keypad |= (0x1U << key);	
+}
+
+void keyboard_unsetkey(keyboard_t *keyboard, uint8_t key) {
+	keyboard->keypad &= ~(0x1U << key);	
 }
 
 typedef struct {
