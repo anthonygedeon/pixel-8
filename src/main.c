@@ -24,6 +24,11 @@
 
 typedef uint16_t addr_t;
 
+typedef enum {
+	KEY_UP   = 0,
+	KEY_DOWN = 1 
+} key_event;
+
 typedef struct {
 	uint8_t ram[MEMORY_MAX];
 } memory_t;
@@ -31,6 +36,26 @@ typedef struct {
 memory_t memory_new() {
 	return (memory_t){ .ram = { 0 } };
 }
+
+const uint8_t FONT_SET[80] = {
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+};
+
 
 void memory_write(memory_t *memory, size_t size, const uint8_t *data) {
 	if (memory == NULL) {
@@ -43,7 +68,12 @@ void memory_write(memory_t *memory, size_t size, const uint8_t *data) {
 		offset++;
 	}
 
-	memory->ram[0x1FF] = 1;
+	int font_offset = 0x050;
+	for (size_t i = 0; i < 80;  i++) {
+		memory->ram[font_offset] = FONT_SET[i];
+		offset++;
+	}
+
 }
 
 typedef struct {
@@ -81,7 +111,18 @@ reg_t register_new() {
 }
 
 typedef struct {
+	uint8_t key;
+	key_event keypad[16];
+	bool keydown;
+} keyboard_t;
+
+keyboard_t keyboard_new() {
+	return (keyboard_t){ .key = 0x0, .keydown = false };
+}
+
+typedef struct {
 	reg_t reg;
+	keyboard_t keyboard;
 	memory_t memory;
 	display_t display;
 } cpu_t;
@@ -91,6 +132,7 @@ cpu_t cpu_new() {
 		.reg     = register_new(),
 		.memory  = memory_new(),
 		.display = display_new(),
+		.keyboard = keyboard_new(),
 	};
 }
 
@@ -105,7 +147,15 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 	uint8_t nibble = opcode & 0x000F;
 	uint8_t x = (opcode >> 8) & 0x000F;
 	uint8_t y = (opcode >> 4) & 0x000F;
-	uint8_t byte = opcode & 0x0FFF;
+	uint8_t byte = opcode & 0x00FF;
+	
+	if (cpu->reg.delay_timer > 0) {
+		cpu->reg.delay_timer--;
+	}
+
+	if (cpu->reg.sound_timer > 0) {
+		cpu->reg.delay_timer--;
+	}
 
 	switch (opcode & 0xF000) {
 		case 0x0000:
@@ -255,6 +305,13 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			cpu->reg.i = addr;
 			cpu->reg.pc += 2;
 			break;
+		case 0xB000:
+			cpu->reg.pc = addr + cpu->reg.v[0];
+			cpu->reg.pc += 2;
+			break;
+		case 0xC000:
+			cpu->reg.v[x] = rand() & byte;
+			break;
 		case 0xD000:
 			printf("DRW V[0x%X], V[0x%X], 0x%X\n", x, y, nibble);
 			uint8_t sprite_x = cpu->reg.v[x] % 64;
@@ -276,11 +333,64 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 			}
 
 			cpu->reg.pc += 2;
+			break;
 
+		case 0xE000:
+			switch (opcode & 0x00FF) {
+				case 0x9E:
+					printf("SKP V[%X]\n", x);
+					if (cpu->keyboard.keypad[cpu->reg.v[x]] == KEY_DOWN) {
+						cpu->reg.pc += 4;
+					} else {
+						cpu->reg.pc += 2;
+					}
+					break;
+				case 0xA1:
+					printf("SKNP V[%X]\n", x);
+					if (cpu->keyboard.keypad[cpu->reg.v[x]] == KEY_UP) {
+						cpu->reg.pc += 4;
+					} else {
+						cpu->reg.pc += 2;
+					}
+					break;
+			}
 			break;
 		case 0xF000:
 			switch(opcode & 0x00FF) {
+				case 0x07:
+					printf("LD V[%x], DT = %X\n", x, cpu->reg.delay_timer);
+					cpu->reg.v[x] = cpu->reg.delay_timer;
+					cpu->reg.pc += 2;
+					break;
+				case 0x15:
+					printf("LD DT, V[%x]\n", x);
+					cpu->reg.delay_timer = cpu->reg.v[x];
+					cpu->reg.pc += 2;
+					break;
+				case 0x18:
+					printf("LD ST, V[%x]\n", x);
+					cpu->reg.sound_timer = cpu->reg.v[x];
+					cpu->reg.pc += 2;
+					break;
+				case 0x0A:
+					printf("LD V[%X], K = %X\n", x, cpu->keyboard.key);
+					
+					for (int i = 0; i < 16; i++) {
+						if (cpu->keyboard.keypad[i] == KEY_DOWN) {
+							cpu->reg.v[x] = i;
+						} 					
+					}
+
+					cpu->reg.pc -= 2;
+					break;
+
+				case 0x29:
+					printf("LD F, V[%X]\n", x);
+					cpu->reg.i = cpu->reg.v[x];
+					cpu->reg.pc += 2;
+					break;
 				case 0x1E:
+					printf("ADD I, V[%X]\n", x);
 					cpu->reg.i += cpu->reg.v[x];
 					cpu->reg.pc += 2;
 					break;
@@ -313,6 +423,7 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 		default:
 			printf("UNKP\n");
 			break;
+		
 	}
 }
 
@@ -380,18 +491,160 @@ int main(int argc, char **argv) {
 
 	cpu_t cpu = cpu_new();
 	
-	int error = load_rom("../test-roms/corax.ch8", &cpu);
+	int error = load_rom("../test-roms/6-keypad.ch8", &cpu);
 	if (error == EXIT_FAILURE) {
 		printf("Failed to load file");
 	}
-
-	SDL_Event e;
 	
-	while (true) {
-		if (SDL_WaitEvent(&e)) {
-			if (e.type == SDL_QUIT) {
-				break;
+	bool is_running = true;
+	
+	while (is_running) {
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {
+			if (event.type == SDL_QUIT) {
+				is_running = false;
 			}
+			
+			if (event.type == SDL_KEYUP) {
+				// cpu.keyboard.keydown = false;
+				switch (event.key.keysym.sym) {
+					case SDLK_1:
+						cpu.keyboard.key = 0x1;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_2: 
+						cpu.keyboard.key = 0x2;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_3:
+						cpu.keyboard.key = 0x3;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_4: 
+						cpu.keyboard.key = 0xC;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_q: 
+						cpu.keyboard.key = 0x4;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_w: 
+						cpu.keyboard.key = 0x5;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_e:
+						cpu.keyboard.key = 0x6;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_r: 
+						cpu.keyboard.key = 0xD;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_a:
+						cpu.keyboard.key = 0x7;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_s: 
+						cpu.keyboard.key = 0x8;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_d:
+						cpu.keyboard.key = 0x9;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_f: 
+						cpu.keyboard.key = 0xE;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_z:
+						cpu.keyboard.key = 0xA;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_x: 
+						cpu.keyboard.key = 0x0;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_c:
+						cpu.keyboard.key = 0xB;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+					case SDLK_v: 
+						cpu.keyboard.key = 0xF;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_UP;
+						break;
+				}
+			}
+
+			if (event.type == SDL_KEYDOWN) {
+				// cpu.keyboard.keydown = true;
+				switch (event.key.keysym.sym) {
+					case SDLK_1:
+						cpu.keyboard.key = 0x1;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_2: 
+						cpu.keyboard.key = 0x2;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_3:
+						cpu.keyboard.key = 0x3;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_4: 
+						cpu.keyboard.key = 0xC;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_q: 
+						cpu.keyboard.key = 0x4;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_w: 
+						cpu.keyboard.key = 0x5;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_e:
+						cpu.keyboard.key = 0x6;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_r: 
+						cpu.keyboard.key = 0xD;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_a:
+						cpu.keyboard.key = 0x7;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_s: 
+						cpu.keyboard.key = 0x8;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_d:
+						cpu.keyboard.key = 0x9;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_f: 
+						cpu.keyboard.key = 0xE;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_z:
+						cpu.keyboard.key = 0xA;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_x: 
+						cpu.keyboard.key = 0x0;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_c:
+						cpu.keyboard.key = 0xB;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+					case SDLK_v: 
+						cpu.keyboard.key = 0xF;
+						cpu.keyboard.keypad[cpu.keyboard.key] = KEY_DOWN;
+						break;
+				}
+			}
+
 		}
 
 		uint16_t opcode = cpu_fetch(&cpu);
