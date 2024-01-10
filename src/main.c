@@ -237,48 +237,49 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 					break;
 				case 0x4:
 					printf("ADD V[%X], V[%X]\n", x, y);
-					if (cpu->reg.v[x] > 0 && 
-						cpu->reg.v[y] < UINT8_MAX - cpu->reg.v[x]) {
+					int overflow = (int)cpu->reg.v[x] + (int)cpu->reg.v[y];
+					if (overflow >= UINT8_MAX) {
+						cpu->reg.v[x] += cpu->reg.v[y];
 						cpu->reg.v[0xF] = 1;
 					} else {
+						cpu->reg.v[x] += cpu->reg.v[y];
 						cpu->reg.v[0xF] = 0;
-
 					}
-					cpu->reg.v[x] += cpu->reg.v[y];
 					break;
 				case 0x5:
 					printf("SUB V[%X], V[%X]\n", x, y);
-					if (cpu->reg.v[x] < 0 && 
-						cpu->reg.v[y] > UINT8_MAX + cpu->reg.v[x]) {
+					if (cpu->reg.v[x] >= cpu->reg.v[y]) {
+						cpu->reg.v[x] -= cpu->reg.v[y];
 						cpu->reg.v[0xF] = 1;
 					} else {
+						cpu->reg.v[x] -= cpu->reg.v[y];
 						cpu->reg.v[0xF] = 0;
-
 					}
-					cpu->reg.v[x] -= cpu->reg.v[y];
 					break;
-				case 0x6:
-					printf("SHR V[%X], { V[%X]\n }", x, y);
-					cpu->reg.v[x] = cpu->reg.v[y];
-					cpu->reg.v[0xF] = (cpu->reg.v[x] & 0x01);
-					cpu->reg.v[x] >>= 0x1;
+				case 0x6: {
+					printf("SHR V[%X], { V[%X] }\n", x, y);
+					// QUIRK: cpu->reg.v[x] = cpu->reg.v[y];
+					uint8_t bit = cpu->reg.v[x] & 0x01;
+                    cpu->reg.v[x] >>= 1;
+                    cpu->reg.v[0xF] = bit;
 					break;
+				}
 				case 0x7:
 					printf("SUB V[%X], V[%X]\n", y, x);
-					if (cpu->reg.v[x] < 0 && 
-						cpu->reg.v[y] > UINT8_MAX + cpu->reg.v[x]) {
+					if (cpu->reg.v[y] >= cpu->reg.v[x]) {
+						cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];;
 						cpu->reg.v[0xF] = 1;
 					} else {
+						cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];;
 						cpu->reg.v[0xF] = 0;
-
 					}
-					cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];
 					break;
 				case 0xE:
 					printf("SHL V[%X], { V[%X] }\n", x, y);
-					cpu->reg.v[x] = cpu->reg.v[y];
-					cpu->reg.v[0xF] = (cpu->reg.v[x] & 0x80);
-					cpu->reg.v[x] <<= 0x1;
+					// QUIRK: cpu->reg.v[x] = cpu->reg.v[y];
+					uint8_t bit = (cpu->reg.v[x] & 0x80) >> 7;
+                    cpu->reg.v[x] <<= 1;
+                    cpu->reg.v[0xF] = bit;
 					break;
 			}
 			break;
@@ -519,7 +520,7 @@ int main(int argc, char **argv) {
 
 	cpu_t cpu = cpu_new();
 	
-	int error = load_rom("../test-roms/6-keypad.ch8", &cpu);
+	int error = load_rom("../test-roms/4-flags.ch8", &cpu);
 	if (error == EXIT_FAILURE) {
 		printf("Failed to load file");
 	}
