@@ -1,3 +1,4 @@
+#include <SDL_audio.h>
 #include <SDL_events.h>
 #include <SDL_render.h>
 #include <SDL_surface.h>
@@ -57,6 +58,24 @@ const uint8_t FONT_SET[80] = {
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 };
 
+void beep(void *userdata, Uint8 *stream, int len) {
+	Uint8 wave[] = {0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255, 255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,};
+	int wrap = 0;
+	for (int i = 0; i < len; i++) {
+		stream[i] = wave[wrap];
+		wrap = (wrap + 1) % ARRAY_LENGTH(wave);
+	}
+}
+
+SDL_AudioSpec *audio_spec_new() {
+	SDL_AudioSpec *spec = malloc(sizeof(SDL_AudioSpec));
+	spec->channels = 1;
+	spec->freq = 44100;
+	spec->samples = 4096;
+	spec->format = AUDIO_U8;
+	spec->callback = *beep;
+	return spec;
+}
 
 void memory_write(memory_t *memory, size_t size, const uint8_t *data) {
 	if (memory == NULL) {
@@ -119,10 +138,6 @@ keyboard_t keyboard_new() {
 	return (keyboard_t){ .keypad = 0x0000 };
 }
 
-bool keyboard_is_keypress() {
-
-}
-
 bool keyboard_isset(keyboard_t keyboard, uint8_t key) {
 	return (keyboard.keypad >> key) & 0x1U;
 }
@@ -136,11 +151,23 @@ void keyboard_unsetkey(keyboard_t *keyboard, uint8_t key) {
 }
 
 typedef struct {
+	SDL_AudioDeviceID id;
+	bool is_playing;
+} sound_t;
+
+typedef struct {
 	reg_t reg;
 	keyboard_t keyboard;
 	memory_t memory;
 	display_t display;
+	sound_t sound;
 } cpu_t;
+
+
+
+sound_t sound_new() {
+	return (sound_t){ .id = 0, .is_playing = true };
+}
 
 cpu_t cpu_new() {
 	return (cpu_t){ 
@@ -148,6 +175,7 @@ cpu_t cpu_new() {
 		.memory  = memory_new(),
 		.display = display_new(),
 		.keyboard = keyboard_new(),
+		.sound = sound_new()
 	};
 }
 
@@ -165,6 +193,7 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 	uint8_t x = (opcode >> 8) & 0x000F;
 	uint8_t y = (opcode >> 4) & 0x000F;
 	uint8_t byte = opcode & 0x00FF;
+
 	
 	switch (opcode & 0xF000) {
 		case 0x0000:
@@ -267,10 +296,10 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 				case 0x7:
 					printf("SUB V[%X], V[%X]\n", y, x);
 					if (cpu->reg.v[y] >= cpu->reg.v[x]) {
-						cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];;
+						cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];
 						cpu->reg.v[0xF] = 1;
 					} else {
-						cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];;
+						cpu->reg.v[x] = cpu->reg.v[y] - cpu->reg.v[x];
 						cpu->reg.v[0xF] = 0;
 					}
 					break;
@@ -412,7 +441,10 @@ void cpu_decode(cpu_t *cpu, uint16_t opcode) {
 	}
 
 	if (cpu->reg.sound_timer > 0) {
+		SDL_PauseAudioDevice(cpu->sound.id, 0);
 		cpu->reg.sound_timer--;
+	} else {
+		SDL_PauseAudioDevice(cpu->sound.id, 1);
 	}
 
 }
@@ -520,10 +552,15 @@ int main(int argc, char **argv) {
 
 	cpu_t cpu = cpu_new();
 	
-	int error = load_rom("../test-roms/4-flags.ch8", &cpu);
+	int error = load_rom("../test-roms/7-beep.ch8", &cpu);
 	if (error == EXIT_FAILURE) {
 		printf("Failed to load file");
 	}
+
+	SDL_AudioSpec *spec = audio_spec_new();
+
+	cpu.sound.id = SDL_OpenAudioDevice(NULL, 0, spec, NULL, SDL_AUDIO_ALLOW_ANY_CHANGE);
+
 	
 	bool is_running = true;
 	
@@ -570,6 +607,8 @@ int main(int argc, char **argv) {
 		SDL_RenderPresent(renderer);
 	}
 
+	free(spec);
+	SDL_CloseAudioDevice(cpu.sound.id);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
