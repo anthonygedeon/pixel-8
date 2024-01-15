@@ -59,7 +59,7 @@ const uint8_t FONT_SET[80] = {
 };
 
 void beep(void *userdata, Uint8 *stream, int len) {
-	Uint8 wave[] = {0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255, 255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,};
+	Uint8 wave[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255};
 	int wrap = 0;
 	for (int i = 0; i < len; i++) {
 		stream[i] = wave[wrap];
@@ -71,7 +71,7 @@ SDL_AudioSpec *audio_spec_new() {
 	SDL_AudioSpec *spec = malloc(sizeof(SDL_AudioSpec));
 	spec->channels = 1;
 	spec->freq = 44100;
-	spec->samples = 4096;
+	spec->samples = 1024;
 	spec->format = AUDIO_U8;
 	spec->callback = *beep;
 	return spec;
@@ -524,11 +524,18 @@ int load_rom(const char *rom, cpu_t *cpu) {
 	return EXIT_SUCCESS;
 }
 
-int main(int argc, char **argv) {
-	// if (argc < 2) {
-	// 	printf("pixel8 ./ROM_FILE.c8\n");
-	// 	return EXIT_FAILURE;
-	// }
+int main(int argc, char *argv[]) {
+	if (argc < 2) {
+		printf("Usage: pixel8 ./ROM_FILE.c8\n");
+		return EXIT_FAILURE;
+	}
+
+	cpu_t cpu = cpu_new();
+
+	int error = load_rom(argv[1], &cpu);
+	if (error == EXIT_FAILURE) {
+		printf("Failed to load file");
+	}
 
 	if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
         printf("SDL_Init Error: %s\n", SDL_GetError());
@@ -549,13 +556,6 @@ int main(int argc, char **argv) {
     }
 
 	SDL_RenderSetScale(renderer, WINDOW_WIDTH / FB_COLS, WINDOW_HEIGHT / FB_ROWS);
-
-	cpu_t cpu = cpu_new();
-	
-	int error = load_rom("../test-roms/7-beep.ch8", &cpu);
-	if (error == EXIT_FAILURE) {
-		printf("Failed to load file");
-	}
 
 	SDL_AudioSpec *spec = audio_spec_new();
 
